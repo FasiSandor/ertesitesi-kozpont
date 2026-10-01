@@ -1,0 +1,17 @@
+{
+  "name": "Értesítési Központ",
+  "short_name": "Értesítések",
+  "description": "Saját iPhone-os üzenet- és értesítési központ",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#05070a",
+  "theme_color": "#07090d",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
