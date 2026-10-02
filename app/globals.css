@@ -479,3 +479,16 @@ h1 { margin: 0; font-size: 22px; letter-spacing: -.03em; }
 .calendarResult.error{border-color:rgba(255,90,105,.2);color:#ff99a3}
 .aiSummary{align-self:stretch;margin:10px 3px 0;color:#768291;font-size:11px;line-height:1.45}
 .disconnectButton{width:100%;margin-top:18px;border:1px solid rgba(255,90,105,.14);border-radius:14px;background:rgba(255,90,105,.045);color:#a9747a;padding:12px;font-size:11px}
+
+.shortcutIntro{padding:12px 14px;border-top:1px solid var(--line);display:grid;gap:4px}
+.shortcutIntro strong{font-size:12px}.shortcutIntro span{color:#6f7b8a;font-size:10px;line-height:1.45}
+.shortcutSource{min-height:64px;padding:10px 12px;border-top:1px solid var(--line);display:flex;align-items:center;gap:11px}
+.shortcutSourceCopy{flex:1;min-width:0;display:grid;gap:3px}.shortcutSourceCopy strong{font-size:13px}.shortcutSourceCopy span{color:#6e7987;font-size:10px}
+.shortcutSourceCopy .sourceLive{color:#55d6a1}.shortcutSource>button{border:1px solid rgba(77,163,255,.2);background:rgba(22,131,255,.08);color:#80bdff;border-radius:10px;padding:8px 10px;font-size:10px;font-weight:800}
+.shortcutGuide{margin:10px 12px 13px;padding:13px;border:1px solid rgba(77,163,255,.18);border-radius:15px;background:rgba(10,18,28,.82)}
+.shortcutGuideHead{display:flex;align-items:center;gap:8px}.shortcutGuideHead strong{font-size:12px}
+.shortcutGuide ol{margin:12px 0 10px;padding-left:20px;color:#8893a1;font-size:11px;line-height:1.5}.shortcutGuide li+li{margin-top:6px}.shortcutGuide b{color:#d9e6f6}
+.shortcutGuideActions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.shortcutGuideActions button,.shortcutGuideActions a{min-height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;gap:7px;font-size:10px;font-weight:800}
+.shortcutGuideActions button{border:1px solid var(--line);background:#111822;color:#b7c4d5}.shortcutGuideActions a{background:linear-gradient(180deg,#228eff,#0878f2);color:white}
+.shortcutGuide small{display:block;margin-top:9px;color:#586576;font-size:9px;line-height:1.45}
+.sourcePending{color:#586270;font-size:18px}

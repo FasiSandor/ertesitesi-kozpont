@@ -93,6 +93,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [setupSource, setSetupSource] = useState<Source | null>(null);
 
   const callApi = useCallback(async (body: Record<string, unknown>, key?: string) => {
     const active = key || token;
@@ -248,16 +249,58 @@ export default function Home() {
     setNotice("Próbaértesítés elküldve.");
   }
 
-  async function copyShortcut() {
-    if (!token) return;
-    const text = [
-      "URL: " + API,
-      "Módszer: POST",
-      "Fejléc: x-notification-token = " + token,
-      'JSON: {"action":"ingest","source":"Messenger","sender":"[Értesítés címe]","message":"[Értesítés szövege]","received_at":"[Aktuális dátum]"}',
+  function shortcutConfig(source: Source) {
+    const sourceName = source === "Messages" ? "Messages" : source;
+    return [
+      "ÉRTESÍTÉSI KÖZPONT · " + sourceName,
+      "",
+      "URL",
+      API,
+      "",
+      "MÓDSZER",
+      "POST",
+      "",
+      "FEJLÉC",
+      "x-notification-token: " + token,
+      "content-type: application/json",
+      "",
+      "JSON TÖRZS",
+      "action = ingest",
+      "source = " + sourceName,
+      "sender = Értesítés címe / Notification Title",
+      "subtitle = Értesítés alcíme / Notification Subtitle",
+      "message = Értesítés üzenete / Notification Message",
+      "received_at = Aktuális dátum / Current Date",
+      "",
+      "AUTOMATION",
+      "Notification → alkalmazás: " + (source === "Messages" ? "Messages / Üzenetek" : source),
+      "Futtatás: automatikusan / kérdezés nélkül",
     ].join("\n");
-    await navigator.clipboard.writeText(text);
-    setNotice("✓ Shortcut bekötési adatok a vágólapon.");
+  }
+
+  async function copyShortcut(source?: Source) {
+    if (!token) return;
+    const chosen = source || setupSource || "Messenger";
+    try {
+      await navigator.clipboard.writeText(shortcutConfig(chosen));
+      setNotice("✓ " + (chosen === "Messages" ? "SMS / iMessage" : chosen) + " Shortcut-beállítás a vágólapon.");
+    } catch {
+      setNotice("A másolás nem sikerült. Nyisd meg ezt a képernyőt Safariban.");
+    }
+  }
+
+  async function openShortcutSetup(source: Source) {
+    setSetupSource(source);
+    await copyShortcut(source);
+    window.setTimeout(() => {
+      window.location.href = "shortcuts://create-shortcut";
+    }, 180);
+  }
+
+  function latestForSource(source: Source) {
+    return messages
+      .filter(m => m.source === source)
+      .sort((a, b) => new Date(b.received_at).getTime() - new Date(a.received_at).getTime())[0] || null;
   }
 
   function disconnect() {
@@ -348,7 +391,7 @@ export default function Home() {
               <div className="settingsTitle"><SlidersHorizontal size={17} /><span>Értesítési híd</span></div>
               <button className="settingsRow" onClick={() => loadMessages()}><div><strong>Inbox frissítése</strong><span>Valós beérkező értesítések lekérése</span></div><RefreshCw size={18} /></button>
               <button className="settingsRow" onClick={testInbox}><div><strong>Bejövő kapcsolat tesztelése</strong><span>Biztonságos tesztüzenet az inboxba</span></div><ChevronRight size={18} /></button>
-              <button className="settingsRow" onClick={copyShortcut}><div><strong>Shortcut bekötés másolása</strong><span>URL + személyes kulcs + JSON minta</span></div><Copy size={18} /></button>
+              <button className="settingsRow" onClick={() => copyShortcut()}><div><strong>Shortcut bekötés másolása</strong><span>URL + személyes kulcs + JSON minta</span></div><Copy size={18} /></button>
               <button className="settingsRow" onClick={testNotification}><div><strong>PWA próbaértesítés</strong><span>A saját app értesítésének ellenőrzése</span></div><Bell size={18} /></button>
               {notice && <div className="notice">{notice}</div>}
             </div>
@@ -360,10 +403,61 @@ export default function Home() {
             </div>
 
             <div className="settingsGroup">
+              <div className="settingsTitle"><SlidersHorizontal size={17} /><span>iPhone automatizálás</span></div>
+              <div className="shortcutIntro">
+                <strong>Forrásonként egyszer kell bekötni.</strong>
+                <span>A Beállítás gomb kimásolja a kész webhook-adatokat és rögtön megnyitja az új Shortcut szerkesztőt.</span>
+              </div>
+              {sources.map(source => {
+                const latest = latestForSource(source);
+                const label = source === "Messages" ? "SMS / iMessage" : source;
+                return (
+                  <div className="shortcutSource" key={source}>
+                    <AppBadge source={source} />
+                    <div className="shortcutSourceCopy">
+                      <strong>{label}</strong>
+                      <span className={latest ? "sourceLive" : ""}>
+                        {latest ? "ÉLŐ · utolsó: " + relativeTime(latest.received_at) : "Még nem érkezett valós értesítés"}
+                      </span>
+                    </div>
+                    <button onClick={() => openShortcutSetup(source)}>Beállítás</button>
+                  </div>
+                );
+              })}
+              {setupSource && (
+                <div className="shortcutGuide">
+                  <div className="shortcutGuideHead">
+                    <AppBadge source={setupSource} small />
+                    <strong>{setupSource === "Messages" ? "SMS / iMessage" : setupSource} bekötése</strong>
+                  </div>
+                  <ol>
+                    <li>A Shortcutsban nevezd el: <b>Értesítés → {setupSource === "Messages" ? "SMS" : setupSource}</b>.</li>
+                    <li><b>Edit → Automation → Notification</b>, majd válaszd ki a {setupSource === "Messages" ? "Messages / Üzenetek" : setupSource} appot.</li>
+                    <li>Adj hozzá egy <b>Get Contents of URL / URL tartalmának lekérése</b> műveletet.</li>
+                    <li>A vágólapról másold be az URL-t, a két fejlécet és a JSON mezőket. A Title / Subtitle / Message mezőkhöz az értesítés megfelelő változóit válaszd.</li>
+                    <li>Állítsd <b>automatikus futásra, kérdezés nélkül</b>, majd mentsd el.</li>
+                  </ol>
+                  <div className="shortcutGuideActions">
+                    <button onClick={() => copyShortcut(setupSource)}><Copy size={16} />Újra másolás</button>
+                    <a href="shortcuts://create-shortcut">Shortcuts megnyitása</a>
+                  </div>
+                  <small>Ha megjön az első valódi értesítés, itt automatikusan ÉLŐ státuszt kapsz.</small>
+                </div>
+              )}
+            </div>
+
+            <div className="settingsGroup">
               <div className="settingsTitle"><ShieldCheck size={17} /><span>Források</span></div>
-              {sources.map(source => (
-                <div className="sourceStatus" key={source}><AppBadge source={source} /><div><strong>{source === "Messages" ? "SMS / iMessage" : source}</strong><span>iPhone értesítés → Shortcut → saját inbox</span></div><Check size={17} /></div>
-              ))}
+              {sources.map(source => {
+                const latest = latestForSource(source);
+                return (
+                  <div className="sourceStatus" key={source}>
+                    <AppBadge source={source} />
+                    <div><strong>{source === "Messages" ? "SMS / iMessage" : source}</strong><span>{latest ? "Kapcsolat bizonyítva · " + relativeTime(latest.received_at) : "iPhone értesítés → Shortcut → saját inbox"}</span></div>
+                    {latest ? <Check size={17} /> : <span className="sourcePending">○</span>}
+                  </div>
+                );
+              })}
               <p className="iosNote">Az app nem olvassa közvetlenül más alkalmazások privát adatbázisát. Az iPhone által átadott értesítési tartalmat fogadja a saját, személyes webhookon keresztül.</p>
             </div>
 
