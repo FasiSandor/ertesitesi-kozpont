@@ -117,8 +117,13 @@ export default function Home() {
       setMessages(d.items || []);
       setPaired(true);
     } catch (e) {
-      setPaired(false);
-      setError(e instanceof Error ? e.message : String(e));
+      const message=e instanceof Error ? e.message : String(e);
+      if (/unauthorized|401/i.test(message)) {
+        setPaired(false);
+      } else if (active) {
+        setPaired(true);
+      }
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -137,6 +142,8 @@ export default function Home() {
       if (saved) {
         setToken(saved);
         setPairInput(saved);
+        setPaired(true);
+        setLoading(false);
       } else {
         setLoading(false);
       }
@@ -188,9 +195,9 @@ export default function Home() {
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d.ok) throw new Error(d.message || "A párosítókód nem érvényes.");
       localStorage.setItem("notification-center-token", newToken);
-      setToken(newToken); setPairInput(newToken); setPaired(true);
+      setToken(newToken); setPairInput(newToken); setPaired(true); setLoading(false);
       setNotice("✓ iPhone párosítva. A személyes kulcs ezen az eszközön marad.");
-      await loadMessages(newToken);
+      void loadMessages(newToken);
     } catch (e) {
       setPaired(false); setError(e instanceof Error ? e.message : String(e)); setLoading(false);
     }
