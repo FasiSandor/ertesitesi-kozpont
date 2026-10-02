@@ -41,7 +41,7 @@ type Message = {
 };
 
 const API = "https://syzpkrypgcwiyzzzlzzi.supabase.co/functions/v1/notification-center";
-const sources: Source[] = ["Messenger", "Messages"];
+const sources: Source[] = ["Messenger", "Instagram", "TikTok", "Messages"];
 const filters: Array<"Összes" | Source> = ["Összes", ...sources];
 
 const sourceMeta: Record<string, { symbol: string; className: string }> = {
@@ -290,7 +290,7 @@ export default function Home() {
       const d=await r.json().catch(()=>({}));
       if(!r.ok||!d.ok)throw new Error(d.message||"A Shortcut-beállítás nem kérhető le.");
       await navigator.clipboard.writeText(String(d.text||""));
-      setNotice("✓ "+(chosen==="Messages"?"iMessage":chosen)+" Shortcut-beállítás a vágólapon.");
+      setNotice("✓ "+(chosen==="Messages"?"SMS / iMessage":chosen)+" Shortcut-beállítás a vágólapon.");
     }catch(e){
       setNotice(e instanceof Error?e.message:"A másolás nem sikerült.");
     }
@@ -418,7 +418,7 @@ export default function Home() {
               </div>
               {sources.map(source => {
                 const latest = latestForSource(source);
-                const label = source === "Messages" ? "iMessage" : source;
+                const label = source === "Messages" ? "SMS / iMessage" : source;
                 return (
                   <div className="shortcutSource" key={source}>
                     <AppBadge source={source} />
@@ -436,10 +436,10 @@ export default function Home() {
                 <div className="shortcutGuide">
                   <div className="shortcutGuideHead">
                     <AppBadge source={setupSource} small />
-                    <strong>{setupSource === "Messages" ? "iMessage" : setupSource} bekötése</strong>
+                    <strong>{setupSource === "Messages" ? "SMS / iMessage" : setupSource} bekötése</strong>
                   </div>
                   <ol>
-                    <li>A már működő <b>Messenger-parancsról készíts másolatot</b>, majd nevezd el: <b>Értesítés → {setupSource === "Messages" ? "iMessage" : setupSource}</b>.</li>
+                    <li>A már működő <b>Messenger-parancsról készíts másolatot</b>, majd nevezd el: <b>Értesítés → {setupSource === "Messages" ? "SMS / iMessage" : setupSource}</b>.</li>
                     <li><b>Edit → Automation → Notification</b>: a Messenger helyett válaszd ki a <b>{setupSource === "Messages" ? "Messages / Üzenetek" : setupSource}</b> appot. Töröld a másolatból a Messenger-triggert.</li>
                     <li>A meglévő <b>URL tartalmának lekérése</b> műveletben a JSON <b>source</b> értéke legyen: <b>{setupSource}</b>. Az URL-t és a személyes kulcsot hagyd meg.</li>
                     <li>A <b>sender</b> maradjon az értesítés címe, a <b>message</b> az üzenete; a működő Messenger-változókat és a teljes értesítésszöveget is tartsd meg.</li>
@@ -461,7 +461,7 @@ export default function Home() {
                 return (
                   <div className="sourceStatus" key={source}>
                     <AppBadge source={source} />
-                    <div><strong>{source === "Messages" ? "iMessage" : source}</strong><span>{latest ? "Kapcsolat bizonyítva · " + relativeTime(latest.received_at) : "iPhone értesítés → Shortcut → saját inbox"}</span></div>
+                    <div><strong>{source === "Messages" ? "SMS / iMessage" : source}</strong><span>{latest ? "Kapcsolat bizonyítva · " + relativeTime(latest.received_at) : "iPhone értesítés → Shortcut → saját inbox"}</span></div>
                     {latest ? <Check size={17} /> : <span className="sourcePending">○</span>}
                   </div>
                 );
