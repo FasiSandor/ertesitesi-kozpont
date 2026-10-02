@@ -2,130 +2,77 @@
 
 import {
   Bell,
+  CalendarCheck2,
   Check,
   ChevronLeft,
   ChevronRight,
-  Clock3,
+  Copy,
   ExternalLink,
   Inbox,
+  Link2,
+  RefreshCw,
   Search,
   Settings,
   ShieldCheck,
   SlidersHorizontal,
+  Smartphone,
   Star,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-type Source = "Messenger" | "Instagram" | "Facebook" | "TikTok";
+type Source = "Messenger" | "Instagram" | "Facebook" | "TikTok" | "Messages" | "Egyéb";
 type Section = "messages" | "favorites" | "settings";
 
 type Message = {
-  id: number;
-  name: string;
-  source: Source;
-  text: string;
-  time: string;
-  avatar: string;
-  deepLink: string;
+  item_id: string;
+  sender: string | null;
+  source: Source | string;
+  title: string | null;
+  subtitle: string | null;
+  body: string;
+  received_at: string;
+  deep_link: string | null;
   unread: boolean;
   starred: boolean;
+  calendar_status: "none" | "ignored" | "created" | "error";
+  calendar_event_id: string | null;
+  ai_summary: string | null;
 };
 
-const messages: Message[] = [
-  {
-    id: 1,
-    name: "Kovács Anna",
-    source: "Messenger",
-    text: "Szia! Hogy vagy? 😊",
-    time: "most",
-    avatar: "https://i.pravatar.cc/160?img=47",
-    deepLink: "https://www.messenger.com/",
-    unread: true,
-    starred: true,
-  },
-  {
-    id: 2,
-    name: "Balázs",
-    source: "Instagram",
-    text: "Reagált a sztoridra: ❤️",
-    time: "2 p",
-    avatar: "https://i.pravatar.cc/160?img=12",
-    deepLink: "https://www.instagram.com/direct/inbox/",
-    unread: true,
-    starred: false,
-  },
-  {
-    id: 3,
-    name: "Tóth Gábor",
-    source: "Facebook",
-    text: "Üzenetet küldött.",
-    time: "5 p",
-    avatar: "https://i.pravatar.cc/160?img=11",
-    deepLink: "https://www.facebook.com/messages/",
-    unread: true,
-    starred: true,
-  },
-  {
-    id: 4,
-    name: "Lili",
-    source: "TikTok",
-    text: "Új üzenet: Szia! 👋",
-    time: "10 p",
-    avatar: "https://i.pravatar.cc/160?img=32",
-    deepLink: "https://www.tiktok.com/messages",
-    unread: true,
-    starred: false,
-  },
-  {
-    id: 5,
-    name: "Dávid",
-    source: "Messenger",
-    text: "Holnap találkozunk?",
-    time: "12 p",
-    avatar: "https://i.pravatar.cc/160?img=13",
-    deepLink: "https://www.messenger.com/",
-    unread: false,
-    starred: false,
-  },
-  {
-    id: 6,
-    name: "Eszter",
-    source: "Instagram",
-    text: "Küldött egy fotót.",
-    time: "15 p",
-    avatar: "https://i.pravatar.cc/160?img=25",
-    deepLink: "https://www.instagram.com/direct/inbox/",
-    unread: false,
-    starred: true,
-  },
-];
+const API = "https://syzpkrypgcwiyzzzlzzi.supabase.co/functions/v1/notification-center";
+const sources: Source[] = ["Messenger", "Instagram", "Facebook", "TikTok", "Messages"];
+const filters: Array<"Összes" | Source> = ["Összes", ...sources];
 
-const sourceMeta: Record<Source, { symbol: string; className: string }> = {
+const sourceMeta: Record<string, { symbol: string; className: string }> = {
   Messenger: { symbol: "M", className: "messenger" },
   Instagram: { symbol: "◎", className: "instagram" },
   Facebook: { symbol: "f", className: "facebook" },
   TikTok: { symbol: "♪", className: "tiktok" },
+  Messages: { symbol: "✉", className: "messages" },
+  Egyéb: { symbol: "•", className: "other" },
 };
 
-const filters: Array<"Összes" | Source> = [
-  "Összes",
-  "Messenger",
-  "Instagram",
-  "Facebook",
-  "TikTok",
-];
+function AppBadge({ source, small = false }: { source: string; small?: boolean }) {
+  const meta = sourceMeta[source] || sourceMeta["Egyéb"];
+  return <span className={`appBadge ${meta.className} ${small ? "small" : ""}`} aria-label={source}>{meta.symbol}</span>;
+}
 
-function AppBadge({ source, small = false }: { source: Source; small?: boolean }) {
-  const meta = sourceMeta[source];
-  return (
-    <span
-      className={`appBadge ${meta.className} ${small ? "small" : ""}`}
-      aria-label={source}
-    >
-      {meta.symbol}
-    </span>
-  );
+function relativeTime(iso: string) {
+  const d = new Date(iso);
+  const diff = Date.now() - d.getTime();
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return "most";
+  if (min < 60) return `${min} p`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h} ó`;
+  if (h < 48) return "tegnap";
+  return d.toLocaleDateString("hu-HU", { month: "short", day: "numeric" });
+}
+
+function initials(m: Message) {
+  const s = (m.sender || m.title || m.source || "?").trim();
+  return s.split(/\s+/).slice(0, 2).map(x => x[0]?.toUpperCase()).join("") || "?";
 }
 
 export default function Home() {
@@ -133,88 +80,158 @@ export default function Home() {
   const [filter, setFilter] = useState<(typeof filters)[number]>("Összes");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Message | null>(null);
-  const [readIds, setReadIds] = useState<number[]>([]);
-  const [favoriteIds, setFavoriteIds] = useState<number[]>([]);
-  const [notice, setNotice] = useState<string>("");
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [token, setToken] = useState("");
+  const [pairInput, setPairInput] = useState("");
+  const [paired, setPaired] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+
+  const callApi = useCallback(async (body: Record<string, unknown>, key?: string) => {
+    const active = key || token;
+    if (!active) throw new Error("Nincs párosítva.");
+    const r = await fetch(API, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-notification-token": active },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) throw new Error(d.message || `HTTP ${r.status}`);
+    return d;
+  }, [token]);
+
+  const loadMessages = useCallback(async (key?: string) => {
+    const active = key || token;
+    if (!active) { setLoading(false); return; }
+    setError("");
+    try {
+      const d = await callApi({ action: "list", limit: 150 }, active);
+      setMessages(d.items || []);
+      setPaired(true);
+    } catch (e) {
+      setPaired(false);
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [callApi, token]);
 
   useEffect(() => {
-    const read = localStorage.getItem("notification-center-read");
-    const favorites = localStorage.getItem("notification-center-favorites");
-    if (read) setReadIds(JSON.parse(read));
-    if (favorites) setFavoriteIds(JSON.parse(favorites));
-
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+    const url = new URL(window.location.href);
+    const incoming = url.searchParams.get("pair");
+    const saved = incoming || localStorage.getItem("notification-center-token") || "";
+    if (incoming) {
+      localStorage.setItem("notification-center-token", incoming);
+      url.searchParams.delete("pair");
+      history.replaceState({}, "", url.pathname + url.search + url.hash);
     }
+    if (saved) {
+      setToken(saved);
+      setPairInput(saved);
+    } else {
+      setLoading(false);
+    }
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => undefined);
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("notification-center-read", JSON.stringify(readIds));
-  }, [readIds]);
+    if (!token) return;
+    loadMessages(token);
+    const timer = window.setInterval(() => loadMessages(token), 30000);
+    const onVisible = () => { if (document.visibilityState === "visible") loadMessages(token); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
+  }, [token, loadMessages]);
 
-  useEffect(() => {
-    localStorage.setItem(
-      "notification-center-favorites",
-      JSON.stringify(favoriteIds),
-    );
-  }, [favoriteIds]);
+  const visibleMessages = useMemo(() => messages.filter((m) => {
+    if (section === "favorites" && !m.starred) return false;
+    if (filter !== "Összes" && m.source !== filter) return false;
+    const hay = `${m.sender || ""} ${m.title || ""} ${m.body} ${m.source}`.toLowerCase();
+    return hay.includes(query.trim().toLowerCase());
+  }), [messages, section, filter, query]);
 
-  const isRead = (message: Message) =>
-    readIds.includes(message.id) || !message.unread;
+  const unreadCount = messages.filter(m => m.unread).length;
 
-  const isFavorite = (message: Message) =>
-    favoriteIds.includes(message.id) ||
-    (message.starred && !favoriteIds.includes(-message.id));
-
-  const visibleMessages = useMemo(() => {
-    return messages.filter((message) => {
-      if (section === "favorites" && !isFavorite(message)) return false;
-      if (filter !== "Összes" && message.source !== filter) return false;
-      const haystack = `${message.name} ${message.text} ${message.source}`.toLowerCase();
-      return haystack.includes(query.trim().toLowerCase());
-    });
-  }, [filter, query, section, favoriteIds]);
-
-  const unreadCount = messages.filter((m) => !isRead(m)).length;
+  async function updateMessage(message: Message, patch: Partial<Pick<Message, "unread" | "starred">>) {
+    setMessages(current => current.map(m => m.item_id === message.item_id ? { ...m, ...patch } : m));
+    if (selected?.item_id === message.item_id) setSelected({ ...selected, ...patch });
+    try { await callApi({ action: "update", id: message.item_id, ...patch }); }
+    catch { await loadMessages(); }
+  }
 
   function openMessage(message: Message) {
     setSelected(message);
-    if (!readIds.includes(message.id)) {
-      setReadIds((current) => [...current, message.id]);
+    if (message.unread) updateMessage(message, { unread: false });
+  }
+
+  async function pair() {
+    const key = pairInput.trim();
+    if (!key) return;
+    setLoading(true); setError("");
+    try {
+      await callApi({ action: "status" }, key);
+      localStorage.setItem("notification-center-token", key);
+      setToken(key); setPaired(true); setNotice("✓ Párosítva az iPhone értesítési inboxszal.");
+      await loadMessages(key);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e)); setLoading(false);
     }
   }
 
-  function toggleFavorite(message: Message) {
-    setFavoriteIds((current) => {
-      const active = isFavorite(message);
-      if (active) {
-        if (message.starred && !current.includes(-message.id)) {
-          return [...current.filter((id) => id !== message.id), -message.id];
-        }
-        return current.filter((id) => id !== message.id);
-      }
-      return [...current.filter((id) => id !== -message.id), message.id];
-    });
+  async function calendarRetry(message: Message) {
+    setNotice("Naptár-ellenőrzés…");
+    try {
+      const d = await callApi({ action: "calendar_retry", id: message.item_id });
+      setNotice(d.calendar_created ? "✓ Esemény bekerült a Naptárba." : "Nem találtam biztos naptári időpontot.");
+      await loadMessages();
+    } catch (e) { setNotice(e instanceof Error ? e.message : String(e)); }
+  }
+
+  async function testInbox() {
+    try {
+      const d = await callApi({
+        action: "ingest",
+        source: "Messenger",
+        sender: "Értesítési Központ",
+        title: "Kapcsolat teszt",
+        message: "A Messenger értesítési híd működik. Ez nem naptáresemény.",
+        received_at: new Date().toISOString(),
+      });
+      setNotice(d.calendar_created ? "✓ Teszt beérkezett és Naptár-eseményt is talált." : "✓ Teszt beérkezett az inboxba.");
+      await loadMessages();
+    } catch (e) { setNotice(e instanceof Error ? e.message : String(e)); }
   }
 
   async function testNotification() {
     if (!("Notification" in window) || !("serviceWorker" in navigator)) {
-      setNotice("Ezen az eszközön ez a böngésző nem támogatja a webes értesítést.");
-      return;
+      setNotice("Ezen az eszközön ez a böngésző nem támogatja a webes értesítést."); return;
     }
     const permission = await Notification.requestPermission();
-    if (permission !== "granted") {
-      setNotice("Az értesítési engedély nincs megadva.");
-      return;
-    }
+    if (permission !== "granted") { setNotice("Az értesítési engedély nincs megadva."); return; }
     const registration = await navigator.serviceWorker.ready;
     await registration.showNotification("Értesítési Központ", {
-      body: "A saját értesítéseid működnek. Ez egy próbaüzenet.",
-      icon: "/icon.svg",
-      badge: "/icon.svg",
-      tag: "notification-center-test",
+      body: "A saját PWA értesítés működik.",
+      icon: "/icon.svg", badge: "/icon.svg", tag: "notification-center-test",
     });
     setNotice("Próbaértesítés elküldve.");
+  }
+
+  async function copyShortcut() {
+    if (!token) return;
+    const text = [
+      "URL: " + API,
+      "Módszer: POST",
+      "Fejléc: x-notification-token = " + token,
+      'JSON: {"action":"ingest","source":"Messenger","sender":"[Értesítés címe]","message":"[Értesítés szövege]","received_at":"[Aktuális dátum]"}',
+    ].join("\n");
+    await navigator.clipboard.writeText(text);
+    setNotice("✓ Shortcut bekötési adatok a vágólapon.");
+  }
+
+  function disconnect() {
+    localStorage.removeItem("notification-center-token");
+    setToken(""); setPairInput(""); setPaired(false); setMessages([]); setNotice("Párosítás törölve erről az eszközről.");
   }
 
   return (
@@ -222,59 +239,35 @@ export default function Home() {
       <div className="phone">
         <header className="topBar">
           <div>
-            <span className="eyebrow">SAJÁT KÖZPONT</span>
-            <h1>
-              {section === "messages"
-                ? "Értesítési Központ"
-                : section === "favorites"
-                  ? "Fontosak"
-                  : "Beállítások"}
-            </h1>
+            <span className="eyebrow">SAJÁT KÖZPONT · ÉLŐ INBOX</span>
+            <h1>{section === "messages" ? "Értesítési Központ" : section === "favorites" ? "Fontosak" : "Beállítások"}</h1>
           </div>
           {section !== "settings" ? (
-            <button
-              className="iconButton"
-              onClick={() => setSection("settings")}
-              aria-label="Beállítások"
-            >
-              <Settings size={20} />
-            </button>
+            <button className="iconButton" onClick={() => setSection("settings")} aria-label="Beállítások"><Settings size={20} /></button>
           ) : (
-            <button
-              className="iconButton"
-              onClick={() => setSection("messages")}
-              aria-label="Vissza"
-            >
-              <X size={20} />
-            </button>
+            <button className="iconButton" onClick={() => setSection("messages")} aria-label="Vissza"><X size={20} /></button>
           )}
         </header>
 
-        {section !== "settings" ? (
+        {!paired && !loading ? (
+          <section className="pairPanel">
+            <div className="pairIcon"><Link2 size={26} /></div>
+            <span className="eyebrow">ELSŐ PÁROSÍTÁS</span>
+            <h2>Kapcsold az iPhone-odhoz</h2>
+            <p>A személyes kulcsot egyszer kell megadni. Utána az app és az iPhone Shortcut ugyanazt a privát inboxot használja.</p>
+            <input value={pairInput} onChange={e => setPairInput(e.target.value)} placeholder="Személyes párosítókulcs" />
+            <button className="primaryAction" onClick={pair}>Párosítás</button>
+            {error && <div className="notice errorNotice">{error}</div>}
+          </section>
+        ) : section !== "settings" ? (
           <>
             <div className="sourceRail">
-              {filters.map((item) => {
-                const count =
-                  item === "Összes"
-                    ? unreadCount
-                    : messages.filter(
-                        (m) => m.source === item && !isRead(m),
-                      ).length;
+              {filters.map(item => {
+                const count = item === "Összes" ? unreadCount : messages.filter(m => m.source === item && m.unread).length;
                 return (
-                  <button
-                    key={item}
-                    className={`sourceChip ${filter === item ? "active" : ""}`}
-                    onClick={() => setFilter(item)}
-                  >
-                    <span className="sourceIcon">
-                      {item === "Összes" ? (
-                        <Inbox size={17} />
-                      ) : (
-                        <AppBadge source={item} small />
-                      )}
-                      {count > 0 && <b>{count}</b>}
-                    </span>
-                    <span>{item}</span>
+                  <button key={item} className={`sourceChip ${filter === item ? "active" : ""}`} onClick={() => setFilter(item)}>
+                    <span className="sourceIcon">{item === "Összes" ? <Inbox size={17} /> : <AppBadge source={item} small />}{count > 0 && <b>{count}</b>}</span>
+                    <span>{item === "Messages" ? "SMS" : item}</span>
                   </button>
                 );
               })}
@@ -282,198 +275,97 @@ export default function Home() {
 
             <label className="searchBox">
               <Search size={18} />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Keresés név vagy üzenet alapján"
-              />
-              {query && (
-                <button onClick={() => setQuery("")} aria-label="Törlés">
-                  <X size={16} />
-                </button>
-              )}
+              <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Keresés név vagy üzenet alapján" />
+              {query && <button onClick={() => setQuery("")} aria-label="Törlés"><X size={16} /></button>}
             </label>
 
             <div className="listHeader">
-              <span>
-                {section === "favorites" ? "Kiemelt beszélgetések" : "Legutóbbiak"}
-              </span>
-              <span className="muted">{visibleMessages.length} elem</span>
+              <span>{section === "favorites" ? "Kiemelt beszélgetések" : "Legutóbbiak"}</span>
+              <button className="miniRefresh" onClick={() => loadMessages()} aria-label="Frissítés"><RefreshCw size={14} /> {visibleMessages.length}</button>
             </div>
 
             <section className="messageList">
-              {visibleMessages.map((message) => (
-                <button
-                  className="messageRow"
-                  key={message.id}
-                  onClick={() => openMessage(message)}
-                >
-                  <div
-                    className="avatar"
-                    style={{ backgroundImage: `url("${message.avatar}")` }}
-                    aria-hidden="true"
-                  />
+              {loading && <div className="emptyState"><RefreshCw className="spin" size={26} /><strong>Szinkronizálás…</strong></div>}
+              {!loading && visibleMessages.map(message => (
+                <button className="messageRow" key={message.item_id} onClick={() => openMessage(message)}>
+                  <div className="avatar initialsAvatar" aria-hidden="true">{initials(message)}</div>
                   <AppBadge source={message.source} small />
                   <div className="messageCopy">
-                    <div className="messageTitle">
-                      <strong>{message.name}</strong>
-                      <time>{message.time}</time>
-                    </div>
+                    <div className="messageTitle"><strong>{message.sender || message.title || message.source}</strong><time>{relativeTime(message.received_at)}</time></div>
                     <div className="messagePreview">
-                      <span className={!isRead(message) ? "unreadText" : ""}>
-                        {message.text}
-                      </span>
-                      {!isRead(message) && <i className="unreadDot" />}
+                      <span className={message.unread ? "unreadText" : ""}>{message.body}</span>
+                      {message.calendar_status === "created" && <CalendarCheck2 className="calendarMini" size={15} />}
+                      {message.unread && <i className="unreadDot" />}
                     </div>
                   </div>
                   <ChevronRight className="rowChevron" size={17} />
                 </button>
               ))}
-
-              {visibleMessages.length === 0 && (
-                <div className="emptyState">
-                  <Search size={28} />
-                  <strong>Nincs találat</strong>
-                  <span>Próbálj másik keresést vagy szűrőt.</span>
-                </div>
+              {!loading && visibleMessages.length === 0 && (
+                <div className="emptyState"><Bell size={28} /><strong>Még nincs beérkezett értesítés</strong><span>Az iPhone Shortcutból érkező üzenetek itt jelennek meg.</span></div>
               )}
             </section>
           </>
         ) : (
           <section className="settingsPanel">
             <div className="heroCard">
-              <span className="heroIcon">
-                <Bell size={24} />
-              </span>
-              <div>
-                <strong>iPhone-ra optimalizálva</strong>
-                <p>
-                  Add hozzá a Főképernyőhöz, és önálló alkalmazásként fog
-                  megnyílni.
-                </p>
-              </div>
+              <span className="heroIcon"><Smartphone size={24} /></span>
+              <div><strong>{paired ? "iPhone kapcsolat aktív" : "Párosítás szükséges"}</strong><p>{paired ? "Az értesítések a saját privát inboxodba érkeznek, az időpontos üzenetek pedig automatikusan a Naptárba mehetnek." : "Nyisd meg a személyes párosítólinket ezen az iPhone-on."}</p></div>
             </div>
 
             <div className="settingsGroup">
-              <div className="settingsTitle">
-                <SlidersHorizontal size={17} />
-                <span>Értesítések</span>
-              </div>
-              <button className="settingsRow" onClick={testNotification}>
-                <div>
-                  <strong>Próbaértesítés küldése</strong>
-                  <span>A saját PWA értesítésének ellenőrzése</span>
-                </div>
-                <ChevronRight size={18} />
-              </button>
+              <div className="settingsTitle"><SlidersHorizontal size={17} /><span>Értesítési híd</span></div>
+              <button className="settingsRow" onClick={() => loadMessages()}><div><strong>Inbox frissítése</strong><span>Valós beérkező értesítések lekérése</span></div><RefreshCw size={18} /></button>
+              <button className="settingsRow" onClick={testInbox}><div><strong>Bejövő kapcsolat tesztelése</strong><span>Biztonságos tesztüzenet az inboxba</span></div><ChevronRight size={18} /></button>
+              <button className="settingsRow" onClick={copyShortcut}><div><strong>Shortcut bekötés másolása</strong><span>URL + személyes kulcs + JSON minta</span></div><Copy size={18} /></button>
+              <button className="settingsRow" onClick={testNotification}><div><strong>PWA próbaértesítés</strong><span>A saját app értesítésének ellenőrzése</span></div><Bell size={18} /></button>
               {notice && <div className="notice">{notice}</div>}
             </div>
 
             <div className="settingsGroup">
-              <div className="settingsTitle">
-                <ShieldCheck size={17} />
-                <span>Források</span>
-              </div>
-              {(["Messenger", "Instagram", "Facebook", "TikTok"] as Source[]).map(
-                (source) => (
-                  <div className="sourceStatus" key={source}>
-                    <AppBadge source={source} />
-                    <div>
-                      <strong>{source}</strong>
-                      <span>Megnyitási kapcsolat kész</span>
-                    </div>
-                    <Check size={17} />
-                  </div>
-                ),
-              )}
-              <p className="iosNote">
-                iOS nem engedi, hogy egy alkalmazás közvetlenül kiolvassa más
-                appok rendszerértesítéseit. A központ ezért külön
-                forráscsatlakozókra épül; csak ténylegesen elérhető adatot fogunk
-                megjeleníteni.
-              </p>
+              <div className="settingsTitle"><CalendarCheck2 size={17} /><span>Naptár kapcsolat</span></div>
+              <div className="sourceStatus"><span className="calendarStatusIcon"><CalendarCheck2 size={18} /></span><div><strong>Automatikus eseményfelismerés</strong><span>Konkrét időpont / határidő → Naptár</span></div><Check size={17} /></div>
+              <p className="iosNote">A Naptárba csak biztos esemény kerül. A like, reakció, fotó, általános csevegés és bizonytalan terv az inboxban marad.</p>
             </div>
+
+            <div className="settingsGroup">
+              <div className="settingsTitle"><ShieldCheck size={17} /><span>Források</span></div>
+              {sources.map(source => (
+                <div className="sourceStatus" key={source}><AppBadge source={source} /><div><strong>{source === "Messages" ? "SMS / iMessage" : source}</strong><span>iPhone értesítés → Shortcut → saját inbox</span></div><Check size={17} /></div>
+              ))}
+              <p className="iosNote">Az app nem olvassa közvetlenül más alkalmazások privát adatbázisát. Az iPhone által átadott értesítési tartalmat fogadja a saját, személyes webhookon keresztül.</p>
+            </div>
+
+            <button className="disconnectButton" onClick={disconnect}>Párosítás törlése erről az eszközről</button>
           </section>
         )}
 
         <nav className="bottomNav">
-          <button
-            className={section === "messages" ? "active" : ""}
-            onClick={() => setSection("messages")}
-          >
-            <span className="navIconWrap">
-              <Bell size={20} />
-              {unreadCount > 0 && <b>{unreadCount}</b>}
-            </span>
-            Üzenetek
-          </button>
-          <button
-            className={section === "favorites" ? "active" : ""}
-            onClick={() => setSection("favorites")}
-          >
-            <Star size={20} />
-            Fontosak
-          </button>
-          <button
-            className={section === "settings" ? "active" : ""}
-            onClick={() => setSection("settings")}
-          >
-            <Settings size={20} />
-            Beállítások
-          </button>
+          <button className={section === "messages" ? "active" : ""} onClick={() => setSection("messages")}><span className="navIconWrap"><Bell size={20} />{unreadCount > 0 && <b>{unreadCount}</b>}</span>Üzenetek</button>
+          <button className={section === "favorites" ? "active" : ""} onClick={() => setSection("favorites")}><Star size={20} />Fontosak</button>
+          <button className={section === "settings" ? "active" : ""} onClick={() => setSection("settings")}><Settings size={20} />Beállítások</button>
         </nav>
 
         {selected && (
           <div className="detailOverlay" role="dialog" aria-modal="true">
             <header className="detailHeader">
-              <button
-                className="backButton"
-                onClick={() => setSelected(null)}
-                aria-label="Vissza"
-              >
-                <ChevronLeft size={23} />
-              </button>
-              <div className="detailSource">
-                <AppBadge source={selected.source} small />
-                <div>
-                  <strong>{selected.name}</strong>
-                  <span>{selected.source}</span>
-                </div>
-              </div>
-              <button
-                className={`starButton ${isFavorite(selected) ? "active" : ""}`}
-                onClick={() => toggleFavorite(selected)}
-                aria-label="Fontos"
-              >
-                <Star size={21} fill={isFavorite(selected) ? "currentColor" : "none"} />
-              </button>
+              <button className="backButton" onClick={() => setSelected(null)} aria-label="Vissza"><ChevronLeft size={23} /></button>
+              <div className="detailSource"><AppBadge source={selected.source} small /><div><strong>{selected.sender || selected.title || selected.source}</strong><span>{selected.source}</span></div></div>
+              <button className={`starButton ${selected.starred ? "active" : ""}`} onClick={() => updateMessage(selected, { starred: !selected.starred })} aria-label="Fontos"><Star size={21} fill={selected.starred ? "currentColor" : "none"} /></button>
             </header>
-
             <div className="detailBody">
-              <div
-                className="detailAvatar"
-                style={{ backgroundImage: `url("${selected.avatar}")` }}
-              />
-              <h2>{selected.name}</h2>
-              <span className="detailLabel">{selected.source}</span>
-
-              <div className="bubble">{selected.text}</div>
-              <span className="detailTime">{selected.time}</span>
-
-              <a
-                className="openButton"
-                href={selected.deepLink}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <ExternalLink size={18} />
-                Megnyitás: {selected.source}
-              </a>
-              <p className="deepLinkHint">
-                iPhone-on a rendszer az adott szolgáltatás alkalmazását nyitja
-                meg, ha az telepítve van és a szolgáltatás támogatja az
-                univerzális hivatkozást.
-              </p>
+              <div className="detailAvatar initialsAvatar">{initials(selected)}</div>
+              <h2>{selected.sender || selected.title || selected.source}</h2>
+              <span className="detailLabel">{selected.source} · {new Date(selected.received_at).toLocaleString("hu-HU")}</span>
+              <div className="bubble">{selected.body}</div>
+              {selected.subtitle && <span className="detailTime">{selected.subtitle}</span>}
+              <div className={`calendarResult ${selected.calendar_status}`}>
+                <CalendarCheck2 size={18} />
+                <span>{selected.calendar_status === "created" ? "Felismert esemény · bekerült a Naptárba" : selected.calendar_status === "error" ? "Az automatikus felismerés hibázott" : "Nem került automatikusan a Naptárba"}</span>
+              </div>
+              {selected.ai_summary && <p className="aiSummary">{selected.ai_summary}</p>}
+              {selected.calendar_status !== "created" && <button className="secondaryAction" onClick={() => calendarRetry(selected)}><CalendarCheck2 size={18} />Naptár újraellenőrzése</button>}
+              {selected.deep_link && <a className="openButton" href={selected.deep_link} target="_blank" rel="noreferrer"><ExternalLink size={18} />Megnyitás: {selected.source}</a>}
             </div>
           </div>
         )}

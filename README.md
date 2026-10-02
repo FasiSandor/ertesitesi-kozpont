@@ -1,31 +1,16 @@
 # Értesítési Központ
 
-iPhone-first PWA egy egységes, prémium értesítési és üzenetközpont felülethez.
+iPhone-first PWA személyes kommunikációs inboxhoz.
 
-## Jelenlegi funkciók
+## Élő folyamat
+iPhone alkalmazásértesítés → Shortcuts Notification automation → Supabase Edge Function → privát inbox → AI eseményfelismerés → Naptár.
 
-- Messenger / Instagram / Facebook / TikTok nézet és szűrés
-- keresés név, üzenet és forrás alapján
-- olvasatlan állapot helyi megőrzése
-- fontos beszélgetések
-- üzenetrészlet és visszaugrás az eredeti szolgáltatásba
-- telepíthető PWA
-- Service Worker + saját próbaértesítés
-- iPhone safe-area és standalone nézet
+Források: Messenger, Instagram, Facebook, TikTok, SMS/iMessage (Messages), illetve egyéb.
 
-## Fontos iOS-korlát
+A rendszer nem olvassa közvetlenül más alkalmazások adatbázisát. Csak az iPhone Shortcuts által explicit továbbított értesítési címet/szöveget tárolja.
 
-Az iOS nem ad általános hozzáférést más alkalmazások rendszerértesítéseihez. Ezért az alkalmazás nem állítja, hogy közvetlenül kiolvassa a Messenger, Instagram, Facebook vagy TikTok értesítéseit. Valós üzenetadat csak külön, engedélyezett forráscsatlakozón keresztül kerülhet be.
+## Naptár
+A biztos időpontot vagy határidőt tartalmazó értesítések automatikusan a `core.naptar_calendar_events` kanonikus Naptár-tárba kerülnek `source_kind=notification` jelöléssel. A bizonytalan vagy nem naptári üzenetek az inboxban maradnak.
 
-## Fejlesztés
-
-```bash
-npm install
-npm run dev
-```
-
-## Build
-
-```bash
-npm run build
-```
+## Biztonság
+A Shortcut és a PWA személyes bearer kulccsal kapcsolódik. A kulcs SHA-256 lenyomata van az adatbázisban; service-role vagy Supabase titkos kulcs nincs a kliensben vagy a repóban.
