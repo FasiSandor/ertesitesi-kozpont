@@ -125,7 +125,7 @@ async function calendarInsert(owner:string,itemId:string,src:string,sender:strin
 }
 async function ingest(owner:string,b:any){
   const source=platform(b.source||b.app||b.application);
-  const sender=norm(b.sender||b.notification_title||b.title||"",300);
+  const sender=norm(b.sender||b.notification_title||b.title||"",300)||source;
   const title=norm(b.title||b.notification_title||sender||source,500);
   const subtitle=norm(b.subtitle||b.notification_subtitle||"",1000);
   const body=norm(b.message||b.body||b.notification_body||b.text||"",6000);
