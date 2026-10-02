@@ -124,7 +124,7 @@ async function calendarInsert(owner:string,itemId:string,src:string,sender:strin
   return data;
 }
 function inferredSender(source:string,body:string,b:any){
-  const raw=norm(b.raw_notification||b.notification_text||b.full_notification||"",6000);
+  const raw=String(b.raw_notification||b.notification_text||b.full_notification||"").trim().slice(0,6000);
   const direct=[
     norm(b.sender||"",300),
     norm(b.notification_title||b.title||"",300),
@@ -135,11 +135,20 @@ function inferredSender(source:string,body:string,b:any){
     if(v && !generic.has(v.toLowerCase()) && v!==body)return v;
   }
   if(raw){
-    const lines=raw.split(/\r?\n/).map((x:string)=>x.trim()).filter(Boolean);
-    for(const line of lines){
+    const bodyText=norm(body,6000);
+    const lines=raw.replace(/\r/g,"").split("\n").map((x:string)=>norm(x,300)).filter(Boolean);
+    const flat=norm(raw,6000);
+    const candidates:string[]=[...lines];
+    if(bodyText && flat.endsWith(bodyText)){
+      let prefix=norm(flat.slice(0,flat.length-bodyText.length),300).replace(/[\s·:|\-–—]+$/g,"").trim();
+      const sourcePrefix=source.toLowerCase()+" ";
+      if(prefix.toLowerCase().startsWith(sourcePrefix))prefix=prefix.slice(source.length).trim();
+      if(prefix)candidates.unshift(prefix);
+    }
+    for(let line of candidates){
       const low=line.toLowerCase();
       if(line.length<2||line.length>180)continue;
-      if(generic.has(low)||line===body)continue;
+      if(generic.has(low)||line===bodyText)continue;
       if(/^\d{1,2}:\d{2}$/.test(line))continue;
       return line;
     }
