@@ -139,7 +139,8 @@ function inferredSender(source:string,body:string,b:any){
     norm(b.notification_title||b.title||"",300),
     norm(b.notification_subtitle||b.subtitle||"",300)
   ];
-  const generic=new Set(["messenger","notification","értesítés","ertesites",source.toLowerCase()]);
+  const aliases=source==="Messages"?["messages","üzenetek","imessage","sms"]:[source.toLowerCase()];
+  const generic=new Set(["messenger","notification","értesítés","ertesites",...aliases]);
   for(const v of direct){
     if(v && !generic.has(v.toLowerCase()) && v!==body)return v;
   }
@@ -150,8 +151,9 @@ function inferredSender(source:string,body:string,b:any){
     const candidates:string[]=[...lines];
     if(bodyText && flat.endsWith(bodyText)){
       let prefix=norm(flat.slice(0,flat.length-bodyText.length),300).replace(/[\s·:|\-–—]+$/g,"").trim();
-      const sourcePrefix=source.toLowerCase()+" ";
-      if(prefix.toLowerCase().startsWith(sourcePrefix))prefix=prefix.slice(source.length).trim();
+      const lowPrefix=prefix.toLowerCase();
+      const alias=aliases.find(a=>lowPrefix.startsWith(a+" "));
+      if(alias)prefix=prefix.slice(alias.length).trim();
       if(prefix)candidates.unshift(prefix);
     }
     for(let line of candidates){
