@@ -43,6 +43,22 @@ async function authToken(req:Request,body:any){
   await c.from("notification_center_tokens").update({last_used_at:new Date().toISOString()}).eq("token_id",data.token_id);
   return data;
 }
+async function pairDevice(body:any){
+  const code=norm(body?.pair_code||"",200),newToken=norm(body?.new_token||"",300);
+  if(!code||!newToken||!/^nc_[A-Za-z0-9_-]{32,}$/.test(newToken))return {ok:false,status:400,message:"invalid_pair_request"};
+  const codeHash=await sha256(code),tokenHash=await sha256(newToken);
+  const {data:pair,error}=await c.from("notification_center_pair_codes")
+    .select("pair_id,owner_user_id,label,expires_at,used_at").eq("code_hash",codeHash).maybeSingle();
+  if(error)throw error;
+  if(!pair||pair.used_at||new Date(pair.expires_at).getTime()<Date.now())return {ok:false,status:401,message:"pair_code_invalid_or_expired"};
+  const {error:ie}=await c.from("notification_center_tokens").insert({
+    owner_user_id:pair.owner_user_id,token_hash:tokenHash,label:pair.label||"iPhone",status:"active"
+  });
+  if(ie)throw ie;
+  const {error:ue}=await c.from("notification_center_pair_codes").update({used_at:new Date().toISOString()}).eq("pair_id",pair.pair_id).is("used_at",null);
+  if(ue)throw ue;
+  return {ok:true,status:200,label:pair.label||"iPhone",version:2};
+}
 function dayOnly(v:any){
   const s=norm(v,20);
   return /^\d{4}-\d{2}-\d{2}$/.test(s)?s:null;
@@ -152,18 +168,22 @@ Deno.serve(async(req)=>{
   if(req.method==="OPTIONS")return new Response("ok",{headers:C});
   if(req.method!=="POST")return J({ok:false,message:"method_not_allowed"},405);
   let b:any={};try{b=await req.json()}catch{return J({ok:false,message:"invalid_json"},400)}
+  const action=norm(b.action||"list",60);
+  if(action==="pair"){
+    try{const p=await pairDevice(b);return J({ok:p.ok,label:p.label||null,version:p.version||2,message:p.message||null},p.status)}
+    catch(e){console.error(e);return J({ok:false,message:e instanceof Error?e.message:String(e)},500)}
+  }
   const token=await authToken(req,b);
   if(!token)return J({ok:false,message:"unauthorized"},401);
   const owner=String(token.owner_user_id);
   try{
-    const action=norm(b.action||"list",60);
-    if(action==="status")return J({ok:true,paired:true,label:token.label,version:1});
+    if(action==="status")return J({ok:true,paired:true,label:token.label,version:2});
     if(action==="ingest")return J(await ingest(owner,b));
     if(action==="list"){
       const limit=Math.min(200,Math.max(1,Number(b.limit||100)));
       const {data,error}=await c.from("notification_inbox_items").select("*").eq("owner_user_id",owner).order("received_at",{ascending:false}).limit(limit);
       if(error)throw error;
-      return J({ok:true,items:data||[],version:1});
+      return J({ok:true,items:data||[],version:2});
     }
     if(action==="update"){
       const id=norm(b.id,80);if(!id)return J({ok:false,message:"missing_id"},400);

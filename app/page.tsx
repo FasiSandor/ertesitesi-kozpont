@@ -75,6 +75,12 @@ function initials(m: Message) {
   return s.split(/\s+/).slice(0, 2).map(x => x[0]?.toUpperCase()).join("") || "?";
 }
 
+function makePersonalToken() {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return "nc_" + Array.from(bytes).map(x => x.toString(16).padStart(2, "0")).join("");
+}
+
 export default function Home() {
   const [section, setSection] = useState<Section>("messages");
   const [filter, setFilter] = useState<(typeof filters)[number]>("Összes");
@@ -120,17 +126,19 @@ export default function Home() {
   useEffect(() => {
     const url = new URL(window.location.href);
     const incoming = url.searchParams.get("pair");
-    const saved = incoming || localStorage.getItem("notification-center-token") || "";
     if (incoming) {
-      localStorage.setItem("notification-center-token", incoming);
       url.searchParams.delete("pair");
       history.replaceState({}, "", url.pathname + url.search + url.hash);
-    }
-    if (saved) {
-      setToken(saved);
-      setPairInput(saved);
+      setPairInput(incoming);
+      void pairWithCode(incoming);
     } else {
-      setLoading(false);
+      const saved = localStorage.getItem("notification-center-token") || "";
+      if (saved) {
+        setToken(saved);
+        setPairInput(saved);
+      } else {
+        setLoading(false);
+      }
     }
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => undefined);
   }, []);
@@ -165,9 +173,32 @@ export default function Home() {
     if (message.unread) updateMessage(message, { unread: false });
   }
 
+  async function pairWithCode(code: string) {
+    const clean = code.trim();
+    if (!clean) return;
+    setLoading(true); setError("");
+    try {
+      const newToken = makePersonalToken();
+      const r = await fetch(API, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "pair", pair_code: clean, new_token: newToken }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.ok) throw new Error(d.message || "A párosítókód nem érvényes.");
+      localStorage.setItem("notification-center-token", newToken);
+      setToken(newToken); setPairInput(newToken); setPaired(true);
+      setNotice("✓ iPhone párosítva. A személyes kulcs ezen az eszközön marad.");
+      await loadMessages(newToken);
+    } catch (e) {
+      setPaired(false); setError(e instanceof Error ? e.message : String(e)); setLoading(false);
+    }
+  }
+
   async function pair() {
     const key = pairInput.trim();
     if (!key) return;
+    if (key.startsWith("pair_")) { await pairWithCode(key); return; }
     setLoading(true); setError("");
     try {
       await callApi({ action: "status" }, key);

@@ -35,3 +35,15 @@ alter table core.notification_inbox_items enable row level security;
 grant usage on schema core to service_role;
 grant select,insert,update,delete on core.notification_center_tokens to service_role;
 grant select,insert,update,delete on core.notification_inbox_items to service_role;
+
+create table if not exists core.notification_center_pair_codes (
+  pair_id uuid primary key default gen_random_uuid(),
+  owner_user_id uuid not null,
+  code_hash text not null unique,
+  label text not null default 'iPhone',
+  expires_at timestamptz not null,
+  used_at timestamptz,
+  created_at timestamptz not null default now()
+);
+alter table core.notification_center_pair_codes enable row level security;
+grant select,insert,update,delete on core.notification_center_pair_codes to service_role;
