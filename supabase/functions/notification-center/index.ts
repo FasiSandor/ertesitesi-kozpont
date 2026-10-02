@@ -123,12 +123,35 @@ async function calendarInsert(owner:string,itemId:string,src:string,sender:strin
   if(error)throw error;
   return data;
 }
+function inferredSender(source:string,body:string,b:any){
+  const raw=norm(b.raw_notification||b.notification_text||b.full_notification||"",6000);
+  const direct=[
+    norm(b.sender||"",300),
+    norm(b.notification_title||b.title||"",300),
+    norm(b.notification_subtitle||b.subtitle||"",300)
+  ];
+  const generic=new Set(["messenger","notification","értesítés","ertesites",source.toLowerCase()]);
+  for(const v of direct){
+    if(v && !generic.has(v.toLowerCase()) && v!==body)return v;
+  }
+  if(raw){
+    const lines=raw.split(/\r?\n/).map((x:string)=>x.trim()).filter(Boolean);
+    for(const line of lines){
+      const low=line.toLowerCase();
+      if(line.length<2||line.length>180)continue;
+      if(generic.has(low)||line===body)continue;
+      if(/^\d{1,2}:\d{2}$/.test(line))continue;
+      return line;
+    }
+  }
+  return source;
+}
 async function ingest(owner:string,b:any){
   const source=platform(b.source||b.app||b.application);
-  const sender=norm(b.sender||b.notification_title||b.title||"",300)||source;
+  const body=norm(b.message||b.body||b.notification_body||b.text||"",6000);
+  const sender=inferredSender(source,body,b);
   const title=norm(b.title||b.notification_title||sender||source,500);
   const subtitle=norm(b.subtitle||b.notification_subtitle||"",1000);
-  const body=norm(b.message||b.body||b.notification_body||b.text||"",6000);
   if(!body&&!title)return {ok:false,message:"empty_notification"};
   const receivedRaw=norm(b.received_at||b.date||"",80);
   const rd=receivedRaw?new Date(receivedRaw):new Date();
@@ -142,7 +165,7 @@ async function ingest(owner:string,b:any){
   const {data:item,error:ie}=await c.from("notification_inbox_items").insert({
     owner_user_id:owner,source,sender:sender||null,title:title||null,subtitle:subtitle||null,body:body||title,
     received_at:received,deep_link:deep,avatar_url:null,dedupe_key:fingerprint,
-    raw_data:{shortcut:true,source_raw:b.source||null}
+    raw_data:{shortcut:true,source_raw:b.source||null,raw_notification_present:!!norm(b.raw_notification||b.notification_text||b.full_notification||"",6000)}
   }).select("*").single();
   if(ie)throw ie;
 
@@ -158,7 +181,7 @@ async function ingest(owner:string,b:any){
   const {data:updated}=await c.from("notification_inbox_items").update({
     calendar_status:status,calendar_event_id:calendar?.event_id||null,
     ai_summary:norm(ai?.summary||ai?.reason||"",4000)||null,updated_at:new Date().toISOString(),
-    raw_data:{shortcut:true,source_raw:b.source||null,calendar_worthy:!!ai?.calendar_worthy,calendar_reason:ai?.reason||null}
+    raw_data:{shortcut:true,source_raw:b.source||null,raw_notification_present:!!norm(b.raw_notification||b.notification_text||b.full_notification||"",6000),calendar_worthy:!!ai?.calendar_worthy,calendar_reason:ai?.reason||null}
   }).eq("item_id",item.item_id).select("*").single();
 
   return {ok:true,deduplicated:false,item:updated||item,calendar_created:!!calendar,calendar};
