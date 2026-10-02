@@ -9,7 +9,7 @@ export async function GET(req:NextRequest){
   if(!token)return NextResponse.json({ok:false,message:"unauthorized"},{status:401});
   const raw=req.nextUrl.searchParams.get("source")||"Messenger";
   const source=ALLOWED.has(raw)?raw:"Messenger";
-  const label=source==="Messages"?"Messages / Üzenetek":source;
+  const label=source==="Messages"?"Messages / Üzenetek (SMS + iMessage)":source;
   const text=[
     "ÉRTESÍTÉSI KÖZPONT · "+source,
     "",
