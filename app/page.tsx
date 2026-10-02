@@ -119,6 +119,9 @@ export default function Home() {
     } catch (e) {
       const message=e instanceof Error ? e.message : String(e);
       if (/unauthorized|401/i.test(message)) {
+        localStorage.removeItem("notification-center-token");
+        setToken("");
+        setPairInput("");
         setPaired(false);
       } else if (active) {
         setPaired(true);
@@ -330,7 +333,7 @@ export default function Home() {
           )}
         </header>
 
-        {!paired && !loading ? (
+        {!token && !loading ? (
           <section className="pairPanel">
             <div className="pairIcon"><Link2 size={26} /></div>
             <span className="eyebrow">ELSŐ PÁROSÍTÁS</span>
@@ -391,7 +394,7 @@ export default function Home() {
           <section className="settingsPanel">
             <div className="heroCard">
               <span className="heroIcon"><Smartphone size={24} /></span>
-              <div><strong>{paired ? "iPhone kapcsolat aktív" : "Párosítás szükséges"}</strong><p>{paired ? "Az értesítések a saját privát inboxodba érkeznek, az időpontos üzenetek pedig automatikusan a Naptárba mehetnek." : "Nyisd meg a személyes párosítólinket ezen az iPhone-on."}</p></div>
+              <div><strong>{token ? "iPhone kapcsolat aktív" : "Párosítás szükséges"}</strong><p>{token ? "Az értesítések a saját privát inboxodba érkeznek, az időpontos üzenetek pedig automatikusan a Naptárba mehetnek." : "Nyisd meg a személyes párosítólinket ezen az iPhone-on."}</p></div>
             </div>
 
             <div className="settingsGroup">
