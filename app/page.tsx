@@ -129,9 +129,7 @@ export default function Home() {
       const url=new URL(window.location.href);
       const incoming=url.searchParams.get("pair");
       if(incoming){
-        url.searchParams.delete("pair");
-        history.replaceState({}, "", url.pathname + url.search + url.hash);
-        await pairWithCode(incoming);
+        window.location.replace("/api/pair?code="+encodeURIComponent(incoming));
         return;
       }
       const legacy=localStorage.getItem("notification-center-token")||"";
@@ -190,30 +188,9 @@ export default function Home() {
   }
 
   async function pairWithCode(code: string) {
-    const clean = code.trim();
-    if (!clean) return;
-    setLoading(true); setError("");
-    try {
-      const newToken = makePersonalToken();
-      const r = await fetch(API, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "pair", pair_code: clean, new_token: newToken }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok || !d.ok) throw new Error(d.message || "A párosítókód nem érvényes.");
-      localStorage.setItem("notification-center-token", newToken);
-      await fetch("/api/session",{
-        method:"POST",credentials:"include",cache:"no-store",
-        headers:{"content-type":"application/json"},
-        body:JSON.stringify({token:newToken})
-      });
-      setToken(newToken); setPairInput(newToken); setPaired(true); setLoading(false);
-      setNotice("✓ iPhone párosítva. A kapcsolat stabil szerveres sessiont kapott.");
-      void loadMessages();
-    } catch (e) {
-      setPaired(false); setError(e instanceof Error ? e.message : String(e)); setLoading(false);
-    }
+    const clean=code.trim();
+    if(!clean)return;
+    window.location.href="/api/pair?code="+encodeURIComponent(clean);
   }
 
   async function pair() {
@@ -305,13 +282,17 @@ export default function Home() {
   }
 
   async function copyShortcut(source?: Source) {
-    if (!token) return;
-    const chosen = source || setupSource || "Messenger";
-    try {
-      await navigator.clipboard.writeText(shortcutConfig(chosen));
-      setNotice("✓ " + (chosen === "Messages" ? "SMS / iMessage" : chosen) + " Shortcut-beállítás a vágólapon.");
-    } catch {
-      setNotice("A másolás nem sikerült. Nyisd meg ezt a képernyőt Safariban.");
+    const chosen=source||setupSource||"Messenger";
+    try{
+      const r=await fetch("/api/shortcut-config?source="+encodeURIComponent(chosen),{
+        credentials:"include",cache:"no-store"
+      });
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok||!d.ok)throw new Error(d.message||"A Shortcut-beállítás nem kérhető le.");
+      await navigator.clipboard.writeText(String(d.text||""));
+      setNotice("✓ "+(chosen==="Messages"?"SMS / iMessage":chosen)+" Shortcut-beállítás a vágólapon.");
+    }catch(e){
+      setNotice(e instanceof Error?e.message:"A másolás nem sikerült.");
     }
   }
 
