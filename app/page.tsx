@@ -439,17 +439,17 @@ export default function Home() {
                     <strong>{setupSource === "Messages" ? "SMS / iMessage" : setupSource} bekötése</strong>
                   </div>
                   <ol>
-                    <li>A Shortcutsban nevezd el: <b>Értesítés → {setupSource === "Messages" ? "SMS" : setupSource}</b>.</li>
-                    <li><b>Edit → Automation → Notification</b>, majd válaszd ki a {setupSource === "Messages" ? "Messages / Üzenetek" : setupSource} appot.</li>
-                    <li>Adj hozzá egy <b>Get Contents of URL / URL tartalmának lekérése</b> műveletet.</li>
-                    <li>A vágólapról másold be az URL-t, a két fejlécet és a JSON mezőket. A Title / Subtitle / Message mezőkhöz az értesítés megfelelő változóit válaszd.</li>
+                    <li>A már működő <b>Messenger-parancsról készíts másolatot</b>, majd nevezd el: <b>Értesítés → {setupSource === "Messages" ? "SMS" : setupSource}</b>.</li>
+                    <li><b>Edit → Automation → Notification</b>: a Messenger helyett válaszd ki a <b>{setupSource === "Messages" ? "Messages / Üzenetek" : setupSource}</b> appot. Töröld a másolatból a Messenger-triggert.</li>
+                    <li>A meglévő <b>URL tartalmának lekérése</b> műveletben a JSON <b>source</b> értéke legyen: <b>{setupSource}</b>. Az URL-t és a személyes kulcsot hagyd meg.</li>
+                    <li>A <b>sender</b> maradjon az értesítés címe, a <b>message</b> az üzenete; a működő Messenger-változókat és a teljes értesítésszöveget is tartsd meg.</li>
                     <li>Állítsd <b>automatikus futásra, kérdezés nélkül</b>, majd mentsd el.</li>
                   </ol>
                   <div className="shortcutGuideActions">
                     <button onClick={() => copyShortcut(setupSource)}><Copy size={16} />Újra másolás</button>
                     <a href="shortcuts://create-shortcut">Shortcuts megnyitása</a>
                   </div>
-                  <small>Ha megjön az első valódi értesítés, itt automatikusan ÉLŐ státuszt kapsz.</small>
+                  <small>Próbához kérj egy rövid üzenetet ezen az appon. Ha itt megjelenik a küldő és a szöveg, a forrás ÉLŐ státuszt kap. Konkrét dátumú programból automatikusan naptáresemény készül.</small>
                 </div>
               )}
             </div>
