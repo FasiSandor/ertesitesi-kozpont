@@ -1,4 +1,4 @@
-const CACHE = "ertesitesi-kozpont-v4";
+const CACHE = "ertesitesi-kozpont-v5";
 const STATIC = ["/manifest.webmanifest", "/icon.svg"];
 
 self.addEventListener("install", (event) => {
@@ -7,32 +7,27 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))),
-    ),
-  );
+  event.waitUntil(caches.keys().then((keys) =>
+    Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key)))
+  ));
   self.clients.claim();
 });
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
-
-  if (event.request.mode === "navigate") {
-    event.respondWith(fetch(event.request, { cache: "no-store" }));
+  const url=new URL(event.request.url);
+  if(event.request.mode==="navigate" || url.pathname.startsWith("/api/")){
+    event.respondWith(fetch(event.request,{cache:"no-store"}));
     return;
   }
-
   event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        if (response.ok && new URL(event.request.url).origin === self.location.origin) {
-          const clone = response.clone();
-          caches.open(CACHE).then((cache) => cache.put(event.request, clone));
-        }
-        return response;
-      })
-      .catch(() => caches.match(event.request)),
+    fetch(event.request).then((response)=>{
+      if(response.ok && url.origin===self.location.origin){
+        const clone=response.clone();
+        caches.open(CACHE).then((cache)=>cache.put(event.request,clone));
+      }
+      return response;
+    }).catch(()=>caches.match(event.request))
   );
 });
 

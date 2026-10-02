@@ -95,73 +95,78 @@ export default function Home() {
   const [error, setError] = useState("");
   const [setupSource, setSetupSource] = useState<Source | null>(null);
 
-  const callApi = useCallback(async (body: Record<string, unknown>, key?: string) => {
-    const active = key || token;
-    if (!active) throw new Error("Nincs párosítva.");
-    const r = await fetch(API, {
+  const callApi = useCallback(async (body: Record<string, unknown>, _key?: string) => {
+    const r = await fetch("/api/notifications", {
       method: "POST",
-      headers: { "content-type": "application/json", "x-notification-token": active },
+      credentials: "include",
+      cache: "no-store",
+      headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok || !d.ok) throw new Error(d.message || `HTTP ${r.status}`);
     return d;
-  }, [token]);
+  }, []);
 
-  const loadMessages = useCallback(async (key?: string) => {
-    const active = key || token;
-    if (!active) { setLoading(false); return; }
+  const loadMessages = useCallback(async (_key?: string) => {
     setError("");
     try {
-      const d = await callApi({ action: "list", limit: 150 }, active);
+      const d = await callApi({ action: "list", limit: 150 });
       setMessages(d.items || []);
       setPaired(true);
     } catch (e) {
       const message=e instanceof Error ? e.message : String(e);
-      if (/unauthorized|401/i.test(message)) {
-        localStorage.removeItem("notification-center-token");
-        setToken("");
-        setPairInput("");
-        setPaired(false);
-      } else if (active) {
-        setPaired(true);
-      }
+      if (/unauthorized|401/i.test(message)) setPaired(false);
       setError(message);
     } finally {
       setLoading(false);
     }
-  }, [callApi, token]);
+  }, [callApi]);
 
   useEffect(() => {
-    const url = new URL(window.location.href);
-    const incoming = url.searchParams.get("pair");
-    if (incoming) {
-      url.searchParams.delete("pair");
-      history.replaceState({}, "", url.pathname + url.search + url.hash);
-      setPairInput(incoming);
-      void pairWithCode(incoming);
-    } else {
-      const saved = localStorage.getItem("notification-center-token") || "";
-      if (saved) {
-        setToken(saved);
-        setPairInput(saved);
-        setPaired(true);
-        setLoading(false);
-      } else {
-        setLoading(false);
+    let cancelled=false;
+    const boot=async()=>{
+      const url=new URL(window.location.href);
+      const incoming=url.searchParams.get("pair");
+      if(incoming){
+        url.searchParams.delete("pair");
+        history.replaceState({}, "", url.pathname + url.search + url.hash);
+        await pairWithCode(incoming);
+        return;
       }
-    }
-    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+      const legacy=localStorage.getItem("notification-center-token")||"";
+      if(legacy){ setToken(legacy); setPairInput(legacy); }
+      try{
+        let r=await fetch("/api/session",{credentials:"include",cache:"no-store"});
+        let d=await r.json().catch(()=>({}));
+        if((!r.ok||!d.ok)&&legacy){
+          r=await fetch("/api/session",{
+            method:"POST",credentials:"include",cache:"no-store",
+            headers:{"content-type":"application/json"},
+            body:JSON.stringify({token:legacy})
+          });
+          d=await r.json().catch(()=>({}));
+        }
+        if(!cancelled)setPaired(!!(r.ok&&d.ok));
+      }catch(e){
+        if(!cancelled)setError(e instanceof Error?e.message:String(e));
+      }finally{
+        if(!cancelled)setLoading(false);
+      }
+    };
+    void boot();
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js?v=5").catch(() => undefined);
+    return()=>{cancelled=true};
   }, []);
 
   useEffect(() => {
-    if (!token) return;
-    loadMessages(token);
-    const timer = window.setInterval(() => loadMessages(token), 30000);
-    const onVisible = () => { if (document.visibilityState === "visible") loadMessages(token); };
+    if (!paired) return;
+    loadMessages();
+    const timer = window.setInterval(() => loadMessages(), 30000);
+    const onVisible = () => { if (document.visibilityState === "visible") loadMessages(); };
     document.addEventListener("visibilitychange", onVisible);
     return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
-  }, [token, loadMessages]);
+  }, [paired, loadMessages]);
 
   const visibleMessages = useMemo(() => messages.filter((m) => {
     if (section === "favorites" && !m.starred) return false;
@@ -198,9 +203,14 @@ export default function Home() {
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d.ok) throw new Error(d.message || "A párosítókód nem érvényes.");
       localStorage.setItem("notification-center-token", newToken);
+      await fetch("/api/session",{
+        method:"POST",credentials:"include",cache:"no-store",
+        headers:{"content-type":"application/json"},
+        body:JSON.stringify({token:newToken})
+      });
       setToken(newToken); setPairInput(newToken); setPaired(true); setLoading(false);
-      setNotice("✓ iPhone párosítva. A személyes kulcs ezen az eszközön marad.");
-      void loadMessages(newToken);
+      setNotice("✓ iPhone párosítva. A kapcsolat stabil szerveres sessiont kapott.");
+      void loadMessages();
     } catch (e) {
       setPaired(false); setError(e instanceof Error ? e.message : String(e)); setLoading(false);
     }
@@ -212,10 +222,16 @@ export default function Home() {
     if (key.startsWith("pair_")) { await pairWithCode(key); return; }
     setLoading(true); setError("");
     try {
-      await callApi({ action: "status" }, key);
+      const r=await fetch("/api/session",{
+        method:"POST",credentials:"include",cache:"no-store",
+        headers:{"content-type":"application/json"},
+        body:JSON.stringify({token:key})
+      });
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok||!d.ok)throw new Error(d.message||"Érvénytelen kulcs.");
       localStorage.setItem("notification-center-token", key);
       setToken(key); setPaired(true); setNotice("✓ Párosítva az iPhone értesítési inboxszal.");
-      await loadMessages(key);
+      await loadMessages();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e)); setLoading(false);
     }
@@ -313,7 +329,8 @@ export default function Home() {
       .sort((a, b) => new Date(b.received_at).getTime() - new Date(a.received_at).getTime())[0] || null;
   }
 
-  function disconnect() {
+  async function disconnect() {
+    await fetch("/api/session",{method:"DELETE",credentials:"include"}).catch(()=>undefined);
     localStorage.removeItem("notification-center-token");
     setToken(""); setPairInput(""); setPaired(false); setMessages([]); setNotice("Párosítás törölve erről az eszközről.");
   }
@@ -333,7 +350,7 @@ export default function Home() {
           )}
         </header>
 
-        {!token && !loading ? (
+        {!paired && !loading ? (
           <section className="pairPanel">
             <div className="pairIcon"><Link2 size={26} /></div>
             <span className="eyebrow">ELSŐ PÁROSÍTÁS</span>
@@ -394,7 +411,7 @@ export default function Home() {
           <section className="settingsPanel">
             <div className="heroCard">
               <span className="heroIcon"><Smartphone size={24} /></span>
-              <div><strong>{token ? "iPhone kapcsolat aktív" : "Párosítás szükséges"}</strong><p>{token ? "Az értesítések a saját privát inboxodba érkeznek, az időpontos üzenetek pedig automatikusan a Naptárba mehetnek." : "Nyisd meg a személyes párosítólinket ezen az iPhone-on."}</p></div>
+              <div><strong>{paired ? "iPhone kapcsolat aktív" : "Párosítás szükséges"}</strong><p>{paired ? "Az értesítések a saját privát inboxodba érkeznek, az időpontos üzenetek pedig automatikusan a Naptárba mehetnek." : "Nyisd meg a személyes párosítólinket ezen az iPhone-on."}</p></div>
             </div>
 
             <div className="settingsGroup">
