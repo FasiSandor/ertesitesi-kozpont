@@ -25,6 +25,15 @@ function platform(v:any){
   if(s.includes("message")||s.includes("sms")||s.includes("imessage")||s.includes("üzenetek"))return "Messages";
   return norm(v,40)||"Egyéb";
 }
+function sourceFromPayload(b:any){
+  const raw=String(b.raw_notification||b.notification_text||b.full_notification||"").trim();
+  const first=raw.replace(/\r/g,"").split("\n").map((x:string)=>x.trim()).filter(Boolean)[0]||"";
+  const hint=norm(b.app_name||b.application_name||b.source_hint||"",120);
+  const probe=(hint+" "+first).toLowerCase();
+  if(/(^|\s)messenger(\s|$|[·:|\-–—])/i.test(probe))return "Messenger";
+  if(/(^|\s)(üzenetek|messages|imessage)(\s|$|[·:|\-–—])/i.test(probe))return "Messages";
+  return platform(b.source||b.app||b.application);
+}
 function defaultLink(src:string){
   if(src==="Messenger")return "https://www.messenger.com/";
   if(src==="Instagram")return "https://www.instagram.com/direct/inbox/";
@@ -156,7 +165,7 @@ function inferredSender(source:string,body:string,b:any){
   return source;
 }
 async function ingest(owner:string,b:any){
-  const source=platform(b.source||b.app||b.application);
+  const source=sourceFromPayload(b);
   const body=norm(b.message||b.body||b.notification_body||b.text||"",6000);
   const sender=inferredSender(source,body,b);
   const title=norm(b.title||b.notification_title||sender||source,500);
@@ -174,7 +183,7 @@ async function ingest(owner:string,b:any){
   const {data:item,error:ie}=await c.from("notification_inbox_items").insert({
     owner_user_id:owner,source,sender:sender||null,title:title||null,subtitle:subtitle||null,body:body||title,
     received_at:received,deep_link:deep,avatar_url:null,dedupe_key:fingerprint,
-    raw_data:{shortcut:true,source_raw:b.source||null,raw_notification_present:!!norm(b.raw_notification||b.notification_text||b.full_notification||"",6000)}
+    raw_data:{shortcut:true,source_raw:b.source||null,detected_source:source,raw_notification_present:!!norm(b.raw_notification||b.notification_text||b.full_notification||"",6000)}
   }).select("*").single();
   if(ie)throw ie;
 
@@ -190,7 +199,7 @@ async function ingest(owner:string,b:any){
   const {data:updated}=await c.from("notification_inbox_items").update({
     calendar_status:status,calendar_event_id:calendar?.event_id||null,
     ai_summary:norm(ai?.summary||ai?.reason||"",4000)||null,updated_at:new Date().toISOString(),
-    raw_data:{shortcut:true,source_raw:b.source||null,raw_notification_present:!!norm(b.raw_notification||b.notification_text||b.full_notification||"",6000),calendar_worthy:!!ai?.calendar_worthy,calendar_reason:ai?.reason||null}
+    raw_data:{shortcut:true,source_raw:b.source||null,detected_source:source,raw_notification_present:!!norm(b.raw_notification||b.notification_text||b.full_notification||"",6000),calendar_worthy:!!ai?.calendar_worthy,calendar_reason:ai?.reason||null}
   }).eq("item_id",item.item_id).select("*").single();
 
   return {ok:true,deduplicated:false,item:updated||item,calendar_created:!!calendar,calendar};
