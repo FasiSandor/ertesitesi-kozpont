@@ -74,9 +74,12 @@ function dayOnly(v:any){
 }
 async function classifyCalendar(input:any){
   const key=Deno.env.get("GEMINI_API_KEY");
-  if(!key)return {calendar_worthy:false,reason:"AI nincs konfigurálva"};
+  if(!key)return {calendar_worthy:false,decision:"ignore",confidence:"uncertain",category:"personal",reason:"AI nincs konfigurálva"};
   const schema={type:"object",properties:{
     calendar_worthy:{type:"boolean"},
+    decision:{type:"string",enum:["auto","review","ignore"]},
+    confidence:{type:"string",enum:["certain","probable","uncertain"]},
+    category:{type:"string",enum:["work","personal","family","sport"]},
     title:{type:"string"},
     summary:{type:"string"},
     all_day:{type:"boolean"},
@@ -87,51 +90,67 @@ async function classifyCalendar(input:any){
     location:{anyOf:[{type:"string"},{type:"null"}]},
     priority:{type:"string",enum:["info","yellow","red"]},
     reason:{type:"string"}
-  },required:["calendar_worthy","title","summary","all_day","event_start","event_end","event_date","end_date","location","priority","reason"],additionalProperties:false};
-  const prompt=`Te egy személyes naptár-bejövő szűrő vagy. Az értesítés a tulajdonos iPhone-járól érkezett.
-Csak akkor calendar_worthy=true, ha az üzenet a tulajdonos számára valós programot, találkozót, időpontot, határidőt, vizsgát, értekezletet, foglalást vagy más konkrét naptári kötelezettséget tartalmaz.
-Reakciók, like-ok, általános csevegés, "majd beszélünk", reklám, bizonytalan terv vagy más ember eseménye NEM naptáresemény.
-A relatív időket (ma, holnap, pénteken, jövő héten) a received_at időponthoz képest értelmezd, Europe/Budapest időzónában.
+  },required:["calendar_worthy","decision","confidence","category","title","summary","all_day","event_start","event_end","event_date","end_date","location","priority","reason"],additionalProperties:false};
+  const prompt=`Te Fási Sándor személyes naptár-bejövő szűrője vagy. Az adat egy, a saját iPhone-jára érkezett alkalmazásértesítésből származik.
+
+DÖNTÉS:
+- decision="auto": ha világos, hogy Fási Sándornak konkrét programja, találkozója, időpontja, határideje, vizsgája, értekezlete, foglalása vagy munkabeosztása van, ÉS a dátum/relatív dátum értelmezhető. Ilyen például: "holnap 18-kor tali", konkrét értekezlet, KRÉTA-helyettesítés, lefoglalt időpont.
+- decision="review": ha valószínűleg naptárba való, de az esemény szándéka, időpontja vagy kontextusa bizonytalan. Ilyenkor ne találj ki adatot.
+- decision="ignore": reakció, like, általános csevegés, reklám, puszta hír, "majd beszélünk", vagy más ember eseménye.
+
+Messenger / Messages / iMessage esetén az értesítés eleve a tulajdonosnak érkezett, ezért NEM szükséges, hogy a neve szerepeljen a szövegben.
+A relatív időket (ma, holnap, pénteken, jövő héten) a received_at időponthoz képest értelmezd Europe/Budapest időzónában.
 Ha konkrét óra van, event_start ISO 8601 legyen explicit Europe/Budapest offsettel. Ha csak a nap biztos, all_day=true és event_date YYYY-MM-DD.
-Ne találj ki időpontot. Rövid, természetes magyar címet adj.
-Tulajdonos: Fási Sándor.
+Ha kezdési idő van, de befejezés nincs, event_end lehet null.
+Kategória: munka/iskola/KRÉTA/helyettesítés/értekezlet = work; magánprogram = personal; családi = family; sport = sport.
+calendar_worthy=true csak auto vagy review esetén.
+Rövid, természetes magyar címet adj.
 ÉRTESÍTÉS=${JSON.stringify(input)}`;
   const r=await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",{
     method:"POST",headers:{"x-goog-api-key":key,"content-type":"application/json"},
-    body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0,responseMimeType:"application/json",responseJsonSchema:schema,maxOutputTokens:1200}})
+    body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0,responseMimeType:"application/json",responseJsonSchema:schema,maxOutputTokens:1400}})
   });
   const d=await r.json();
   if(!r.ok)throw new Error("ai_"+r.status);
   return JSON.parse(d?.candidates?.[0]?.content?.parts?.[0]?.text||"{}");
 }
-async function calendarInsert(owner:string,itemId:string,src:string,sender:string,link:string|null,received:string,ai:any){
-  if(!ai?.calendar_worthy)return null;
-  const allDay=!!ai.all_day;
-  let startsAt:string|null=null,endsAt:string|null=null,startDate:string|null=null,endDate:string|null=null;
-  if(allDay){
-    startDate=dayOnly(ai.event_date);
-    endDate=dayOnly(ai.end_date)||startDate;
-    if(!startDate)return null;
-  }else{
-    const st=ai.event_start?new Date(ai.event_start):null,en=ai.event_end?new Date(ai.event_end):null;
-    if(!st||Number.isNaN(st.getTime()))return null;
-    startsAt=st.toISOString();
-    if(en&&!Number.isNaN(en.getTime()))endsAt=en.toISOString();
-  }
-  const payload={
-    owner_user_id:owner,title:norm(ai.title||"Üzenetből felismert esemény",500),
-    starts_at:startsAt,ends_at:endsAt,start_date:startDate,end_date:endDate,all_day:allDay,
-    location:norm(ai.location||"",500)||null,details:norm(ai.summary||"",4000)||null,
-    source_kind:"notification",source_external_id:itemId,source_url:link,
-    category:"message_event",status:"active",notice_state:"new",
-    dedupe_key:"notification:"+itemId,
-    metadata:{notification_item_id:itemId,platform:src,sender,received_at:received,priority:ai.priority||"info",calendar_reason:ai.reason||""},
-    updated_at:new Date().toISOString(),archived_at:null
-  };
-  const {data,error}=await c.from("naptar_calendar_events").upsert(payload,{onConflict:"owner_user_id,dedupe_key"}).select("event_id,title,starts_at,start_date,all_day").single();
-  if(error)throw error;
-  return data;
+
+async function calendarCoreIngest(rawToken:string,item:any,source:string,sender:string,deep:string|null,received:string,ai:any){
+  const decision=ai?.decision==="auto"?"auto":ai?.decision==="review"?"review":"ignore";
+  if(decision==="ignore")return {ok:true,mode:"ignored"};
+  const allDay=!!ai?.all_day;
+  const startsAt=!allDay&&ai?.event_start?new Date(ai.event_start).toISOString():null;
+  const endsAt=!allDay&&ai?.event_end?new Date(ai.event_end).toISOString():null;
+  const date=allDay?dayOnly(ai?.event_date):null;
+  if(allDay&&!date)return {ok:true,mode:"ignored",reason:"missing_date"};
+  if(!allDay&&!startsAt)return {ok:true,mode:"ignored",reason:"missing_start"};
+  const r=await fetch("https://calendar-core.vercel.app/api/notification-ingest",{
+    method:"POST",
+    headers:{"content-type":"application/json","x-notification-token":rawToken},
+    body:JSON.stringify({
+      itemId:item.item_id,
+      decision,
+      confidence:ai?.confidence||"uncertain",
+      category:ai?.category||"personal",
+      title:norm(ai?.title||item.title||"Üzenetből felismert esemény",500),
+      summary:norm(ai?.summary||"",4000),
+      allDay,
+      date,
+      startsAt,
+      endsAt,
+      location:norm(ai?.location||"",500)||null,
+      sourceUrl:deep,
+      platform:source,
+      sender,
+      receivedAt:received,
+      reason:ai?.reason||""
+    })
+  });
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error("calendar_core_"+r.status+"_"+String(d?.error||"error"));
+  return d;
 }
+
 function inferredSender(source:string,body:string,b:any){
   const raw=String(b.raw_notification||b.notification_text||b.full_notification||"").trim().slice(0,6000);
   const direct=[
@@ -166,7 +185,7 @@ function inferredSender(source:string,body:string,b:any){
   }
   return source;
 }
-async function ingest(owner:string,b:any){
+async function ingest(owner:string,b:any,rawToken:string){
   const source=sourceFromPayload(b);
   const body=norm(b.message||b.body||b.notification_body||b.text||"",6000);
   const sender=inferredSender(source,body,b);
@@ -180,7 +199,7 @@ async function ingest(owner:string,b:any){
   const minute=received.slice(0,16);
   const fingerprint=await sha256([owner,source,sender,title,subtitle,body,minute].join("|").toLowerCase());
   const {data:existing}=await c.from("notification_inbox_items").select("*").eq("owner_user_id",owner).eq("dedupe_key",fingerprint).maybeSingle();
-  if(existing)return {ok:true,deduplicated:true,item:existing,calendar_created:existing.calendar_status==="created"};
+  if(existing)return {ok:true,deduplicated:true,item:existing,calendar_created:existing.calendar_status==="created",calendar_review:existing.calendar_status==="review"};
 
   const {data:item,error:ie}=await c.from("notification_inbox_items").insert({
     owner_user_id:owner,source,sender:sender||null,title:title||null,subtitle:subtitle||null,body:body||title,
@@ -189,22 +208,36 @@ async function ingest(owner:string,b:any){
   }).select("*").single();
   if(ie)throw ie;
 
-  let ai:any=null,calendar:any=null,status="ignored";
+  let ai:any=null,core:any=null,status="ignored";
   try{
     ai=await classifyCalendar({source,sender,title,subtitle,body,received_at:received});
-    calendar=await calendarInsert(owner,item.item_id,source,sender,deep,received,ai);
-    status=calendar?"created":"ignored";
+    core=await calendarCoreIngest(rawToken,item,source,sender,deep,received,ai);
+    status=core?.mode==="created"?"created":core?.mode==="review"?"review":"ignored";
   }catch(e){
-    console.error("notification classify",e);
+    console.error("notification classify/core",e);
     status="error";
   }
+
+  const coreEventId=core?.event?.id||null;
+  const coreSuggestionId=core?.suggestion?.id||null;
   const {data:updated}=await c.from("notification_inbox_items").update({
-    calendar_status:status,calendar_event_id:calendar?.event_id||null,
+    calendar_status:status,calendar_event_id:null,
     ai_summary:norm(ai?.summary||ai?.reason||"",4000)||null,updated_at:new Date().toISOString(),
-    raw_data:{shortcut:true,source_raw:b.source||null,detected_source:source,raw_notification_present:!!norm(b.raw_notification||b.notification_text||b.full_notification||"",6000),calendar_worthy:!!ai?.calendar_worthy,calendar_reason:ai?.reason||null}
+    raw_data:{
+      shortcut:true,source_raw:b.source||null,detected_source:source,
+      raw_notification_present:!!norm(b.raw_notification||b.notification_text||b.full_notification||"",6000),
+      calendar_worthy:!!ai?.calendar_worthy,calendar_decision:ai?.decision||"ignore",
+      calendar_confidence:ai?.confidence||"uncertain",calendar_reason:ai?.reason||null,
+      calendar_core_event_id:coreEventId,calendar_core_suggestion_id:coreSuggestionId
+    }
   }).eq("item_id",item.item_id).select("*").single();
 
-  return {ok:true,deduplicated:false,item:updated||item,calendar_created:!!calendar,calendar};
+  return {
+    ok:true,deduplicated:false,item:updated||item,
+    calendar_created:status==="created",calendar_review:status==="review",
+    calendar_core_event_id:coreEventId,calendar_core_suggestion_id:coreSuggestionId,
+    decision:ai?.decision||"ignore",reason:ai?.reason||null
+  };
 }
 
 Deno.serve(async(req)=>{
@@ -216,12 +249,13 @@ Deno.serve(async(req)=>{
     try{const p=await pairDevice(b);return J({ok:p.ok,label:p.label||null,version:p.version||2,message:p.message||null},p.status)}
     catch(e){console.error(e);return J({ok:false,message:e instanceof Error?e.message:String(e)},500)}
   }
+  const rawToken=norm(req.headers.get("x-notification-token")||b?.token||"",300);
   const token=await authToken(req,b);
   if(!token)return J({ok:false,message:"unauthorized"},401);
   const owner=String(token.owner_user_id);
   try{
     if(action==="status")return J({ok:true,paired:true,label:token.label,version:2});
-    if(action==="ingest")return J(await ingest(owner,b));
+    if(action==="ingest")return J(await ingest(owner,b,rawToken));
     if(action==="list"){
       const limit=Math.min(200,Math.max(1,Number(b.limit||100)));
       const {data,error}=await c.from("notification_inbox_items").select("*").eq("owner_user_id",owner).order("received_at",{ascending:false}).limit(limit);
@@ -242,10 +276,15 @@ Deno.serve(async(req)=>{
       const {data:item,error}=await c.from("notification_inbox_items").select("*").eq("item_id",id).eq("owner_user_id",owner).maybeSingle();
       if(error)throw error;if(!item)return J({ok:false,message:"not_found"},404);
       const ai=await classifyCalendar({source:item.source,sender:item.sender,title:item.title,subtitle:item.subtitle,body:item.body,received_at:item.received_at});
-      const calendar=await calendarInsert(owner,item.item_id,item.source,item.sender||"",item.deep_link,item.received_at,ai);
-      const status=calendar?"created":"ignored";
-      await c.from("notification_inbox_items").update({calendar_status:status,calendar_event_id:calendar?.event_id||null,ai_summary:norm(ai?.summary||ai?.reason||"",4000)||null,updated_at:new Date().toISOString()}).eq("item_id",id);
-      return J({ok:true,calendar_created:!!calendar,calendar,reason:ai?.reason||null});
+      const core=await calendarCoreIngest(rawToken,item,item.source,item.sender||"",item.deep_link,item.received_at,ai);
+      const status=core?.mode==="created"?"created":core?.mode==="review"?"review":"ignored";
+      await c.from("notification_inbox_items").update({
+        calendar_status:status,calendar_event_id:null,
+        ai_summary:norm(ai?.summary||ai?.reason||"",4000)||null,
+        updated_at:new Date().toISOString(),
+        raw_data:{...(item.raw_data||{}),calendar_decision:ai?.decision||"ignore",calendar_confidence:ai?.confidence||"uncertain",calendar_core_event_id:core?.event?.id||null,calendar_core_suggestion_id:core?.suggestion?.id||null}
+      }).eq("item_id",id);
+      return J({ok:true,calendar_created:status==="created",calendar_review:status==="review",core,reason:ai?.reason||null});
     }
     return J({ok:false,message:"unknown_action"},400);
   }catch(e){
